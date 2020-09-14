@@ -1,0 +1,79 @@
+---
+title: "HW4"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cluster)    # clustering algorithms
+library(factoextra) # clustering visualization
+df <- read.csv("energy.csv")
+row.names(df) <- df[,2]
+df=df%>%select(-Abbreviation,-Region)
+str(df)
+```
+
+```{r}
+df.norm <- sapply(df[2:12], scale)
+row.names(df.norm) <- row.names(df)
+d.norm <- dist(df.norm, method = "euclidean")
+fviz_nbclust(df.norm, FUN = hcut, method = "wss")
+fviz_nbclust(df.norm, FUN = hcut, method = "silhouette")
+gap_stat <- clusGap(df.norm, FUN = hcut, nstart = 25, K.max = 10, B = 50)
+fviz_gap_stat(gap_stat)
+```
+
+
+```{r}
+hc1 <- hclust(d.norm, method = "single")
+plot(hc1, hang = -1, ann = FALSE)
+rect.hclust(hc1, k = 2, border = 2:5)
+# Note: hang -1 means do not hang labels off the leaves; make them level; ann is for plot annotation
+hc2 <- hclust(d.norm, method = "average")
+plot(hc2, hang = -1, ann = FALSE)
+rect.hclust(hc2, k = 2, border = 2:5)
+
+hc3 <- hclust(d.norm, method = "complete")
+plot(hc3, hang = -1, ann = FALSE)
+rect.hclust(hc3, k = 2, border = 2:5)
+
+hc4 <- hclust(d.norm, method = "centroid")
+plot(hc4, hang = -1, ann = FALSE)
+rect.hclust(hc4, k = 2, border = 2:5)
+
+hc5 <- hclust(d.norm, method = "ward.D")
+plot(hc5, hang = -1, ann = FALSE)
+rect.hclust(hc5, k = 2, border = 2:5)
+```
+
+
+```{r}
+m <- c( "average", "single", "complete", "ward")
+names(m) <- c( "average", "single", "complete", "ward")
+
+# function to compute coefficient
+ac <- function(x) {
+  agnes(df.norm, method = x)$ac
+}
+
+map_dbl(m, ac)
+```
+
+```{r}
+# ward.D
+memb <- cutree(hc5, k = 2) #ward.D
+memb
+df=df %>%
+  mutate(HierCluster = memb)
+fviz_cluster(list(data = df.norm, cluster = memb),ggtheme = theme_bw())
+```
+
+
+```{r}
+row.names(df.norm) <- paste(memb, ": ", row.names(df.norm), sep = "")
+heatmap(as.matrix(df.norm), Colv = NA, hclustfun = hclust, 
+        col=rev(paste("grey",1:99,sep="")))
+```
+
+

@@ -1,0 +1,52 @@
+---
+title: "A3"
+output: html_document
+---
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(FNN)
+library(caret)
+library(pROC)
+# import dataset
+energy = read.csv("energy_0310.csv")
+energy=energy%>%select(-price,-price.day.ahead,-price.actual,price)
+```
+
+```{r}
+set.seed(111)
+train.index <- sample(row.names(energy), 0.8*dim(energy)[1])
+valid.index <- setdiff(row.names(energy), train.index)
+train.df <- energy[train.index, ]
+valid.df <- energy[valid.index, ]
+```
+
+```{r}
+train.norm.df <- train.df
+valid.norm.df <- valid.df
+energy.norm.df <- energy
+norm.values <- preProcess(train.df[, 1:23], method=c("center", "scale"))
+train.norm.df[, 1:25] <- predict(norm.values, train.df[, 1:25])
+valid.norm.df[, 1:25] <- predict(norm.values, valid.df[, 1:25])
+energy.norm.df[, 1:25] <- predict(norm.values, energy[,1:25])
+```
+
+```{r}
+# initialize a data frame with two columns: k, and accuracy.
+accuracy.df <- data.frame(k = seq(1, 20, 1), accuracy = rep(0, 20))
+
+# compute knn for different k on validation.
+for(i in 1:20) {          # <<<< adjust the bounds to look at particular confusion matrix
+  knn.pred <- knn(train.norm.df[, 1:25], valid.norm.df[, 1:25],
+                  cl = train.norm.df[, 26], k = i)
+  accuracy.df[i, 2] <- confusionMatrix(knn.pred, as.factor(valid.norm.df[, 26]))$overall[1] 
+}
+accuracy.df
+knn.pred_3 <- class::knn(train=train.norm.df[, 1:25], test=valid.norm.df[, 1:25],cl = train.norm.df[, 26], k = 3,prob=TRUE)
+confusionMatrix(knn.pred_3, as.factor(valid.norm.df[, 26]))
+plot(x=accuracy.df$k,y=accuracy.df$accuracy,type="l",xlab="number of neighbors",ylab="accuracy",main="k VS accuracy")
+
+```
+
+
+

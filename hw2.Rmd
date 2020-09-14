@@ -1,0 +1,189 @@
+---
+title: "hw2"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(broom)
+library(leaps)
+library(forecast)
+library(car)
+library(ggfortify)
+library(corrplot)
+library(GGally)
+energy<-read.csv("energy_dataset_modified_0206(1).csv")
+energy$time = as.Date(energy$time)
+energy = energy %>% mutate(Year = as.factor(format(time,'%Y')),
+                           Month = as.factor(format(time,'%m')),
+                        hydro1 = generation.hydro.pumped.storage.consumption*generation.hydro.run.of.river.and.poundage,
+                        hydro2 = generation.hydro.water.reservoir*generation.hydro.pumped.storage.consumption,
+                        hydro3 =
+generation.hydro.run.of.river.and.poundage*generation.hydro.water.reservoir,
+                        fossil = generation.fossil.brown.coal.lignite*generation.fossil.hard.coal,
+                        renewable =generation.other.renewable^2) %>% 
+        select(everything(), -time)
+
+```
+Remove outliers in the dataset using the IQR
+```{r}
+# define a function that removes outliers
+remove_outliers <- function(x, na.rm = TRUE) {
+  qnt = quantile(x, probs=c(.25, .75), na.rm = na.rm)
+  H = 1.5 * IQR(x, na.rm = na.rm)
+  y = x
+  y[x < (qnt[1] - H)] = NA
+  y[x > (qnt[2] + H)] = NA
+  y
+}
+
+# apply the function to the whole dataset
+no_outliers = apply(energy[-c(21, 22)], FUN = remove_outliers, MARGIN = 2)
+no_outliers = as.data.frame(no_outliers)
+no_outliers['Year'] = energy['Year']
+no_outliers['Month'] = energy['Month']
+no_outliers = drop_na(no_outliers)
+```
+
+
+
+```{r}
+# partition data
+set.seed(3)  # set seed for reproducing the partition
+train_index =  sample(c(1:22663), round(22663*0.8) ) 
+
+df_train = no_outliers[train_index, ]
+df_valid = no_outliers[-train_index, ]
+```
+
+
+#### The first linear model
+We first ran the regression using all predictors and found out that we got an Adjusted R-squared of 0.546, which is not ideal.
+```{r}
+model <- lm(price.actual ~ ., data = df_train)
+options(scipen = 999)
+summary(model)
+```
+
+#### Initial model prediction 
+```{r}
+# use predict() to make predictions on a new set. 
+lm_pred <- predict(model, df_valid)
+options(scipen=999, digits = 2)
+residuals_df_valid <- df_valid$price.actual[1:length(df_valid)] - lm_pred[1:length(df_valid)]
+data.frame("Predicted" = lm_pred[1:length(df_valid)], "Actual" = df_valid$price.actual[1:length(df_valid)],
+           "Residual" = residuals_df_valid)
+
+options(scipen=999, digits = 3)
+# use accuracy() to compute common accuracy measures.
+accuracy(lm_pred, df_valid$price.actua)
+```
+
+#### The residual gragh
+The residuals appear to be normally distributed.
+```{r}
+residuals = df_valid$price.actual - lm_pred
+hist(residuals, breaks = 25, xlab = "Residuals", main = "")
+```
+
+#### Find the correlations between pairs of variables
+
+
+
+#### Remove predictors
+According to the coorrelation graph, we decided to get rid of those variables that are extremely highly correlated. In this case, we removed the forcasting variables, which are derived or calculated based on actual predictors in our dataset.
+```{r}
+df_train = subset(df_train, select=-c(forecast.solar.day.ahead, forecast.wind.onshore.day.ahead, total.load.actual,total.load.forecast, price.day.ahead ))
+df_valid=subset(df_valid, select=-c(forecast.solar.day.ahead, forecast.wind.onshore.day.ahead, total.load.actual,total.load.forecast, price.day.ahead ))
+
+model2 <- lm(price.actual ~ ., data = df_train)
+options(scipen = 999)
+summary(model2)
+model2_predict<-predict(model2,df_valid)
+accuracy(model2_predict,df_valid$price.actual)
+```
+
+#### Check the existence of multicollinearity by using Variance Inflation Factor(VIF)
+Besides taking advantage of the corplot, we also used VIF to make sure there is no multicollinearity in our regression model. As the result has shown, no VIF index is higher than 8, which indicates that there is no multicollinearity.
+```{r}
+vif(model2)
+```
+
+
+#### Reduce number of predictors--Exhaustive Search
+Based on the output Exhaustive Search, we take the set of predictors with highest adjusted R square. In this case, all predictors are included.
+
+
+#### Reduce number of predictors--stepwise regression
+We tried to reduce number of predictors by using the alternative approach, the stepwise selection, and ploted the diagnostic graphs
+
+
+
+
+# Remove the outliers with the absolute values of standarized residuals beyond 2.5 
+The Adjusted R-squared now increases to 0.71
+
+
+
+```{r}
+
+df_train_log<-log(df_train[1:18])
+df_train_log[df_train_log==-Inf] <- 0
+df_valid_log<-log(df_valid[1:18])
+df_valid_log[df_valid_log==-Inf]<-0
+
+```
+
+```{r}
+df_train_logt<-cbind(df_train_log,df_train$Year,df_train$Month)
+colnames(df_train_logt)[19]<-"Year"
+colnames(df_train_logt)[20]<-"Month"
+df_valid_logt<-cbind(df_valid_log,df_valid$Year,df_valid$Month)
+colnames(df_valid_logt)[19]<-"Year"
+colnames(df_valid_logt)[20]<-"Month"
+df_train_logt[df_train_logt==-Inf] <- 0
+df_valid_logt[df_valid_logt==-Inf]<-0
+model3 = lm(price.actual ~ ., df_train_logt)
+lm_step1 = step(model3, direction = 'both')
+summary(lm_step1)
+lm_step_pred1 = predict(lm_step1, df_valid_logt)
+accuracy(lm_step_pred1, df_valid_logt$price.actual)
+autoplot(lm_step1)
+
+```
+
+```{r}
+search = regsubsets(price.actual ~ ., data = df_train_features_selected_logt, nbest = 1, nvmax = dim(df_train)[2],
+                     method = "exhaustive")
+sum = summary(search)
+
+# show metrics
+sum$rsq
+sum$adjr2 # we use adjusted R square as the main indicator to proceed our analysis
+sum$Cp
+
+# select the row with highest adjr2
+```
+
+```{r}
+# add model details to the lm_step
+lm_step.diag.metrics = augment(lm_step1)
+head(lm_step.diag.metrics)
+
+# filter out the absolute value of residuals that are over 3
+# dropped 912 rows
+lm_step.diag.metrics = lm_step.diag.metrics %>% filter(abs(.std.resid) <= 2.5)
+df_train_features_selected = subset(lm_step.diag.metrics, select=-c(.rownames, .fitted, .se.fit, .resid, .hat, .sigma, .cooksd, .std.resid))
+df_train_features_selected
+#df_train_features_selected = lm_step.diag.metrics[-c(1, 17:23)]
+```
+```{r}
+model4<-lm(price.actual~.,df_train_features_selected)
+summary(model4)
+lm_step_pred2 = predict(model4, df_valid_logt)
+accuracy(lm_step_pred2, df_valid_logt$price.actual)
+autoplot(model4)
+```
